@@ -1,20 +1,13 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jul 28 15:10:21 2017
-
-@author: admin
-"""
-
 import sys
 import os
+import codecs
 from PIL import Image
 from PyQt5.QtWidgets import (QWidget, QApplication, QPushButton, QLineEdit, QLabel,
                              QHBoxLayout, QVBoxLayout, QTextEdit, QComboBox,
                              QFileDialog, QGraphicsScene, QGroupBox)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QPainter, QPen
-from xml.etree.ElementTree import Element, SubElement, Comment, tostring
+from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
 
 class MainWidget(QWidget):
@@ -283,8 +276,9 @@ class MainWidget(QWidget):
                     # 白以外なら、用意した画像にピクセルを書き込み
                     trans.putpixel((x, y), pixel)
             trans.save('trans.png')
+            orgin.close()
             # 画像の読み込み
-            pixmap = QPixmap('trans.png')#file[0])
+            pixmap = QPixmap('trans.png')
             self.pixmap = pixmap.scaledToHeight(725)
             # ラベルを作ってその中に画像を置く
             self.lbl.setPixmap(self.pixmap)
@@ -326,10 +320,24 @@ class MainWidget(QWidget):
                 painter.drawPolyline(*points)
     
             # draw current points
+            # 画像始点(x=20, y=70),other:(x=530, y=70), (x=530, y=800), (x=20, y=800)
             if self.points:
                 painter.drawPolyline(*self.points)
-                print(self.points)
-    
+                #print(self.points)
+                
+            if len(self.points) == 5:
+                grid = ''
+                for p in self.points:
+                    grid += '(' + str(p.x()) + ',' + str(p.y()) + ') '
+                if self.combo.currentIndex() == 0:
+                    self.areaEditFr.setText(grid)
+                elif self.combo.currentIndex() == 1:
+                    self.areaEditBa.setText(grid)
+                elif self.combo.currentIndex() == 2:
+                    self.areaEditFa.setText(grid)
+                elif self.combo.currentIndex() == 3:
+                    self.areaEditBo.setText(grid)   
+                    
     def save_annotation(self):
         saved_title = ''
         if self.combo.currentIndex() == 0:
@@ -339,6 +347,7 @@ class MainWidget(QWidget):
             self.idEditFr.clear()
             frame_info['area'] = self.areaEditFr.text()
             self.areaEditFr.clear()
+            self.points.clear()
             frame_info['framing'] = self.framingEditFr.text()
             self.framingEditFr.clear()
             self.frame_info_list.append(frame_info)
@@ -350,6 +359,7 @@ class MainWidget(QWidget):
             self.idEditBa.clear()
             balloon_info['area'] = self.areaEditBa.text()
             self.areaEditBa.clear()
+            self.points.clear()
             balloon_info['content'] = self.contentEditBa.text()
             self.contentEditBa.clear()
             balloon_info['balloon'] = self.balloonEditBa.text()
@@ -371,6 +381,7 @@ class MainWidget(QWidget):
             self.charanoEditFa.clear()
             face_info['area'] = self.areaEditFa.text()
             self.areaEditFa.clear()
+            self.points.clear()
             face_info['aspect'] = self.aspectEditFa.text()
             self.aspectEditFa.clear()
             face_info['direction'] = self.directionEditFa.text()
@@ -386,6 +397,7 @@ class MainWidget(QWidget):
             self.charaidEditBo.clear()
             body_info['area'] = self.areaEditBo.text()
             self.areaEditBo.clear()
+            self.points.clear()
             body_info['motion'] = self.motionEditBo.text()
             self.motionEditBo.clear()
             self.body_info_list.append(body_info)
@@ -402,13 +414,34 @@ class MainWidget(QWidget):
         
     def output_annotation(self):
         top = Element('image')
-        '''
-        comment = Comment('Generated for PyMOTW')
-        top.append(comment)
-        '''
         child_title = SubElement(top, 'title')
-        child_title.text = self.file.split('/')[-1]
+        child_title.text = self.file.split('/')[-1].split('.')[0]
         child_frames = SubElement(top, 'frames')
+        
+        sorted_balloon = sorted(self.balloon_info_list, key=lambda x:(x['frame_id'],x['balloon_id']))
+        sorted_face = sorted(self.face_info_list, key=lambda x:(x['frame_id'],x['chara_id']))
+        sorted_body = sorted(self.body_info_list, key=lambda x:(x['frame_id'],x['chara_id']))
+        chara = []
+        chara_id_list = []
+
+        for face in sorted_face:
+            for body in sorted_body:
+                if face['chara_id'] == body['chara_id']:
+                    face_body = [face['frame_id'], face['chara_id'], face['chara_no'], face['area'], face['aspect'], face['direction'], body['area'], body['motion']]
+                    chara.append(face_body)
+                    chara_id_list.append(face['chara_id'])
+                elif body['chara_id'] > face['chara_id']:
+                    break
+        for face in sorted_face:
+            if face['chara_id'] not in chara_id_list:
+                face_list = [face['frame_id'], face['chara_id'], face['chara_no'], face['area'], face['aspect'], face['direction']]
+                chara.append(face_list)
+        for  body in sorted_body:
+            if body['chara_id'] not in chara_id_list:
+                body_list = [body['frame_id'], body['chara_id'], body['area'], body['motion']]
+                chara.append(body_list)
+                
+        sorted_chara = sorted(chara, key=lambda x:(x[0],x[1]))
         
         for frame_dic in sorted(self.frame_info_list, key=lambda x:x['frame_id']):
             gchild_frame = SubElement(child_frames, 'frame')
@@ -419,7 +452,7 @@ class MainWidget(QWidget):
             ggchild_framing = SubElement(gchild_frame, 'Framing')
             ggchild_framing.text = frame_dic['framing']
             
-            for balloon_dic in sorted(self.balloon_info_list, key=lambda x:(x['frame_id'],x['balloon_id'])):
+            for balloon_dic in sorted_balloon:
                 if balloon_dic['frame_id'] == frame_dic['frame_id']:
                     ggchild_balloon = SubElement(gchild_frame, 'Balloon')
                     gggchild_idBa = SubElement(ggchild_balloon, 'ID')
@@ -433,39 +466,66 @@ class MainWidget(QWidget):
                     gggchild_speaker = SubElement(ggchild_balloon, 'Speaker')
                     gggchild_speaker.text = balloon_dic['speaker']
                 elif balloon_dic['frame_id'] > frame_dic['frame_id']:
-                    break
-            
-            for face_dic in sorted(self.face_info_list, key=lambda x:(x['frame_id'],x['chara_id'])):
-                if face_dic['frame_id'] == frame_dic['frame_id']:
+                    break          
+                
+            for chara_list in sorted_chara:
+                if chara_list[0] == frame_dic['frame_id'] and len(chara_list) == 8: # 顔と体両方のアノテーション
                     ggchild_chara = SubElement(gchild_frame, 'Character')
                     gggchild_idFa = SubElement(ggchild_chara, 'ID')
-                    gggchild_idFa.text = face_dic['chara_id']
+                    gggchild_idFa.text = chara_list[1]
                     gggchild_noFa = SubElement(ggchild_chara, 'Chara_No.')
-                    gggchild_noFa.text = face_dic['chara_no']
-                    gggchild_areaFa = SubElement(ggchild_chara, 'Area')
-                    gggchild_areaFa.text = face_dic['area']
+                    gggchild_noFa.text = chara_list[2]
+                    gggchild_areaFa = SubElement(ggchild_chara, 'FaceArea')
+                    gggchild_areaFa.text = chara_list[3]
                     gggchild_aspect = SubElement(ggchild_chara, 'Aspect')
-                    gggchild_aspect.text = face_dic['aspect']
+                    gggchild_aspect.text = chara_list[4]
                     gggchild_direction = SubElement(ggchild_chara, 'Direction')
-                    gggchild_direction.text = face_dic['direction']
-                elif face_dic['frame_id'] > frame_dic['frame_id']:
+                    gggchild_direction.text = chara_list[5]
+                    gggchild_direction = SubElement(ggchild_chara, 'BodyArea')
+                    gggchild_direction.text = chara_list[6]
+                    gggchild_direction = SubElement(ggchild_chara, 'Motion')
+                    gggchild_direction.text = chara_list[7]
+                elif chara_list[0] == frame_dic['frame_id'] and len(chara_list) == 6: # 顔のみのアノテーション
+                    ggchild_chara = SubElement(gchild_frame, 'Character')
+                    gggchild_idFa = SubElement(ggchild_chara, 'ID')
+                    gggchild_idFa.text = chara_list[1]
+                    gggchild_noFa = SubElement(ggchild_chara, 'Chara_No.')
+                    gggchild_noFa.text = chara_list[2]
+                    gggchild_areaFa = SubElement(ggchild_chara, 'FaceArea')
+                    gggchild_areaFa.text = chara_list[3]
+                    gggchild_aspect = SubElement(ggchild_chara, 'Aspect')
+                    gggchild_aspect.text = chara_list[4]
+                    gggchild_direction = SubElement(ggchild_chara, 'Direction')
+                    gggchild_direction.text = chara_list[5]
+                    gggchild_direction = SubElement(ggchild_chara, 'BodyArea')
+                    gggchild_direction = SubElement(ggchild_chara, 'Motion')
+                elif chara_list[0] == frame_dic['frame_id'] and len(chara_list) == 4: # 体のみのアノテーション(不要？)
+                    ggchild_chara = SubElement(gchild_frame, 'Character')
+                    gggchild_idFa = SubElement(ggchild_chara, 'ID')
+                    gggchild_idFa.text = chara_list[1]
+                    gggchild_noFa = SubElement(ggchild_chara, 'Chara_No.')
+                    gggchild_areaFa = SubElement(ggchild_chara, 'FaceArea')
+                    gggchild_aspect = SubElement(ggchild_chara, 'Aspect')
+                    gggchild_direction = SubElement(ggchild_chara, 'Direction')
+                    gggchild_direction = SubElement(ggchild_chara, 'BodyArea')
+                    gggchild_direction.text = chara_list[2]
+                    gggchild_direction = SubElement(ggchild_chara, 'Motion')
+                    gggchild_direction.text = chara_list[3]
+                elif chara_list[0] > frame_dic['frame_id']:
                     break
-            
-            for body_dic in sorted(self.body_info_list, key=lambda x:(x['frame_id'],x['chara_id'])):
-                if body_dic['chara_id'] == face_dic['chara_id']:
-                    gggchild_idBo = SubElement(ggchild_chara, 'ID')
-                    gggchild_idBo.text = face_dic['chara_id']
-                    gggchild_noFa = SubElement(ggchild_chara, 'Chara_No.')
-                    gggchild_noFa.text = face_dic['chara_no']
-                    gggchild_areaFa = SubElement(ggchild_chara, 'Area')
-                    gggchild_areaFa.text = face_dic['area']
-                    gggchild_aspect = SubElement(ggchild_chara, 'Aspect')
-                    gggchild_aspect.text = balloon_dic['aspect']
-                    gggchild_direction = SubElement(ggchild_chara, 'Direction')
-                    gggchild_direction.text = balloon_dic['direction']
-            
-        
+                
         print(self.prettify(top))
+        self.savedList.clear()
+        
+        file_name = self.file.split('/')[-1].split('.')[0] + '.xml'
+        f = codecs.open(file_name, 'w', 'utf-8')
+        f.write(self.prettify(top))
+        f.close()
+        
+        self.frame_info_list = []
+        self.balloon_info_list = []
+        self.face_info_list = []
+        self.body_info_list = []
         
     def prettify(self,elem):
         # Return a pretty-printed XML string for the Element.
